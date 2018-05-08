@@ -61,6 +61,18 @@ def _timeit(f):
     return _wrapper
 
 
+class CTParse:
+    def __init__(self, resolution, production, score):
+        self.resolution = resolution
+        self.production = production
+        self.score = score
+
+    def __repr__(self):
+        return '{} s={:.3f} p={}'.format(self.resolution,
+                                         self.score,
+                                         self.production)
+
+
 class StashElement:
     '''A partial parse result with
 
@@ -96,9 +108,27 @@ class StashElement:
             new_s.prod = self.prod[:match[0]] + (prod,) + self.prod[match[1]:]
             new_s.rules = self.rules + (rule_name,)
             new_s.update_score()
+            prod.nodes = sum([p.nodes for p in self.prod[match[0]:match[1]]], [])
+            prod.nodes.append('{} {}'.format(rule_name,
+                                              ' '.join(p.as_node for p in self.prod[match[0]:match[1]])))
             return new_s
         else:
             return None
+
+    def emit(self):
+        '''convert all (probably) partial production to parse results'''
+        logger.debug('----------- NEW PROD -----------')
+        logger.debug(self.prod)
+        for x in self.prod:
+            if type(x) is not RegexMatch:
+                # update score to be only relative to the text
+                # match by the actual production, not the
+                # initial sequence of regular expression
+                # matches
+                score = _nb.apply(self.rules) + log(len(x)/self.txt_len)
+                # only emit productions not emitted before or
+                # productions emitted before but scored higher
+                yield CTParse(x, self.rules, score)
 
     def __lt__(self, other):
         '''Sort stash elements by (a) the length of text they can
@@ -111,18 +141,6 @@ class StashElement:
         return ((self.max_covered_chars < other.max_covered_chars) or
                 (self.max_covered_chars == other.max_covered_chars and
                  self.score < other.score))
-
-
-class CTParse:
-    def __init__(self, resolution, production, score):
-        self.resolution = resolution
-        self.production = production
-        self.score = score
-
-    def __repr__(self):
-        return '{} s={:.3f} p={}'.format(self.resolution,
-                                         self.score,
-                                         self.production)
 
 
 def _ctparse(txt, ts=None, timeout=0, relative_match_len=1.0):
@@ -162,21 +180,15 @@ def _ctparse(txt, ts=None, timeout=0, relative_match_len=1.0):
             if not new_stash:
                 # no new productions were generated from this stash element.
                 # emit all (probably partial) production
-                for x in s.prod:
-                    if type(x) is not RegexMatch:
-                        # update score to be only relative to the text
-                        # match by the actual production, not the
-                        # initial sequence of regular expression
-                        # matches
-                        score_x = get_score(s.rules, len(x))
-                        # only emit productions not emitted before or
-                        # productions emitted before but scored higher
-                        if parse_prod.get(x, score_x - 1) < score_x:
-                            parse_prod[x] = score_x
-                            logger.debug('New parse (len stash {} {:6.2f})'
-                                         ': {} -> {}'.format(
-                                             len(stash), score_x, txt, x.__repr__()))
-                            yield CTParse(x, s.rules, score_x)
+                logger.debug('----------- NEW PROD -----------')
+                logger.debug(s.prod)
+                for x in s.emit():
+                    if parse_prod.get(x.resolution, x.score - 1) < x.score:
+                        parse_prod[x.resolution] = x.score
+                        logger.debug('New parse (len stash {} {:6.2f})'
+                                     ': {} -> {}'.format(
+                                         len(stash), x.score, txt, x.__repr__()))
+                        yield x
             else:
                 # new productions generated, put on stash and sort
                 # stash by highst score

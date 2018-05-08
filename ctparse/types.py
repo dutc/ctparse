@@ -6,6 +6,7 @@ class Artifact:
         self.mstart = 0
         self.mend = 0
         self._attrs = ['mstart', 'mend']
+        self.nodes = []
 
     def update_span(self, *args):
         self.mstart = args[0].mstart
@@ -65,6 +66,10 @@ class RegexMatch(Artifact):
 
     def __str__(self):
         return '{}:{}'.format(self.id, self._text)
+
+    @property
+    def as_node(self):
+        return str(self.id)
 
 
 pod_hours = {
@@ -230,6 +235,10 @@ class Time(Artifact):
         return datetime(self.year, self.month, self.day,
                         self.hour, self.minute)
 
+    @property
+    def as_node(self):
+        return 'Time[{}]'.format(''.join('1' if getattr(self, a) is not None else '0' for a in self._attrs))
+
 
 class Interval(Artifact):
     def __init__(self, t_from=None, t_to=None):
@@ -266,3 +275,9 @@ class Interval(Artifact):
             start.hour = 23
             start.minute = 59
             return start
+
+    @property
+    def as_node(self):
+        return 'Interval[{},{}]'.format(
+            self.t_from.as_node if self.t_from is not None else 'None',
+            self.t_to.as_node if self.t_to is not None else 'None')
